@@ -283,7 +283,20 @@ void kvm_shmem_start_ft(void)
 
     ft_started = 1;
 }
+void kvm_shmem_stop_ft(void)
+{
+    int ret;
 
+    //kvm_start_log_share_dirty_pages();
+
+    ret = kvm_vm_ioctl(kvm_state, KVM_SHM_ENABLE);
+    if (ret) {
+        fprintf(stderr, "%s failed: %d\n", __func__, ret);
+        exit(ret);
+    }
+ 
+    ft_started = 0;
+}
 int kvmft_started(void)
 {
     return ft_started;
@@ -864,33 +877,35 @@ void kvm_shmem_sortup_trackable(void)
 	struct trackable_ptr *tptr, tmp;
 
 	j = 0;
-
-	for (i = 0; i < TRACKABLE_ARRAY_LEN; ++i) {
-		tptr = &trackable_ptrs[i];
-		if (tptr->registered) {
-			memcpy(&trackable_ptrs[j], tptr, sizeof(*tptr));
-			++j;
-		}
-	}
-
-	trackable_number = j;
-	printf("\n\n%s trackable_number = %d\n\n", __func__, trackable_number);
-
-    for (i = 0; i < trackable_number; i++) {
-        for (j = i + 1; j < trackable_number; j++) {
-            if (trackable_ptrs[i].ptr > trackable_ptrs[j].ptr) {
-                tmp = trackable_ptrs[i];
-                trackable_ptrs[i] = trackable_ptrs[j];
-                trackable_ptrs[j] = tmp;
+    if(trackable_number == 0){
+        for (i = 0; i < TRACKABLE_ARRAY_LEN; ++i) {
+            tptr = &trackable_ptrs[i];
+            if (tptr->registered) {
+                memcpy(&trackable_ptrs[j], tptr, sizeof(*tptr));
+                ++j;
             }
         }
-    }
 
-	if (trackable_number > 32) {
-		printf("%s trackable_number exceed 32 bit, create a larger bitmap.\n",
-					__func__);
-		exit(-1);
-	}
+        trackable_number = j;
+        printf("\n\n%s trackable_number = %d\n\n", __func__, trackable_number);
+
+        for (i = 0; i < trackable_number; i++) {
+            for (j = i + 1; j < trackable_number; j++) {
+                if (trackable_ptrs[i].ptr > trackable_ptrs[j].ptr) {
+                    tmp = trackable_ptrs[i];
+                    trackable_ptrs[i] = trackable_ptrs[j];
+                    trackable_ptrs[j] = tmp;
+                }
+            }
+        }
+
+        if (trackable_number > 32) {
+            printf("%s trackable_number exceed 32 bit, create a larger bitmap.\n",
+                        __func__);
+            exit(-1);
+        }
+        assert(!kvm_shmem_report_trackable());
+    }
 }
 
 int kvm_shmem_report_trackable(void)
@@ -995,6 +1010,7 @@ int kvm_shmem_mark_page_dirty(void *ptr, unsigned long gfn)
         param.hptr = ptr;
         param.gfn = (__u32)gfn;
         r = kvm_vm_ioctl(kvm_state, KVM_SHM_MARK_PAGE_DIRTY, &param);
+        printf("r = %d\n",r);
         assert(r == 0 || r == -ENOENT);
         if (r == -ENOENT)
             dirty_pages_userspace_add(gfn);
@@ -1026,6 +1042,7 @@ static int kvm_start_kernel_transfer(int trans_index, int ram_fd, int conn_index
                 printf("%s already takes %ldms %d\n", __func__, (end-start)/1000, s->dirty_pfns_len);
             }
         }
+        printf("kvm ram start kernel transfer : %d (%lf)\n",s->dirty_pfns_len,time_in_double());
         ret = kvm_vm_ioctl(kvm_state, KVM_START_KERNEL_TRANSFER, &req);
         if (ret == -EINTR)
             printf("%s interrupted\n", __func__);
@@ -1098,7 +1115,7 @@ static void* trans_ram_conn_thread_func(void *opaque)
         s->ram_len += ret;
 
         ret = kvm_start_kernel_transfer(s->cur_off, s->ram_fds[d->index], d->index, ft_ram_conn_count);
-
+        printf("kvm ram finish kernel transfer s(%d) trans_serial = %ld, (%lf)\n",s->fd,s->trans_serial,time_in_double());
         assert(ret >= 0);
 
         // TODO need lock
@@ -1171,6 +1188,7 @@ void kvm_shmem_send_dirty_kernel(MigrationState *s)
 	int put_off;
 	cur_off = s->cur_off;
 	put_off = kvm_vm_ioctl(kvm_state, KVM_GET_PUT_OFF, &cur_off);
+    printf("put_off = %d s->cur_off=%d\n",put_off,s->cur_off);
 	//TODO kvmft_assert_ram_hash_and_dlist function should be moved to kernel space
     //kvmft_assert_ram_hash_and_dlist(dlist->pages, dlist->put_off);
     s->dirty_pfns_len = put_off;
@@ -1268,7 +1286,7 @@ void kvm_shmem_load_ram_with_hdr(void *buf, int size, void *hdr_buf, int hdr_siz
     void *p_page;
     void *p_header;
     int p_off = 0, h_off = 0;
-
+    printf("%s load kvm_ram_with_hdr (%lf)\n", __func__,time_in_double());
 
     do {
         memcpy(&p_gfn, hdr_buf + h_off, sizeof(int));
@@ -1311,6 +1329,7 @@ void kvm_shmem_load_ram(void *buf, int size)
     int gfn_list_off = 0;
     int i;
 
+    printf("%s load kvm_ram (%lf)\n", __func__,time_in_double());
     struct __attribute__((__packed__)) c16x8_header {
         uint64_t gfn;
         uint32_t size;

@@ -58,7 +58,7 @@ static int socket_errno(MigrationState *s)
 
 static int socket_write(MigrationState *s, const void * buf, size_t size)
 {
-    //printf("%s %d\n", __func__, size);
+    printf("%s data to s(fd:%d) size:%ld", __func__,s->fd, size);
     return send(s->fd, buf, size, 0);
 }
 
@@ -67,6 +67,7 @@ static int socket_read(MigrationState *s, const void * buf, size_t size)
     ssize_t len;
 
     do {
+        printf("%s data from s(fd:%d) size:%ld", __func__,s->fd, size);
         len = recv(s->fd, (void *)buf, size, 0);
     } while (len == -1 && socket_error() == EINTR);
     if (len == -1) {

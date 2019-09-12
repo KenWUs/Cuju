@@ -1,0 +1,13 @@
+VM init finished
+nheads=232   vring_avail_idx(&vdev->vq[i])=256    vdev->vq[i].last_avail_idx = 24
+nheads=0   vring_avail_idx(&vdev->vq[i])=49    vdev->vq[i].last_avail_idx = 49
+nheads=0   vring_avail_idx(&vdev->vq[i])=15    vdev->vq[i].last_avail_idx = 15
+nheads=0   vring_avail_idx(&vdev->vq[i])=5630    vdev->vq[i].last_avail_idx = 5630
+enter cuju FT mode (incoming)
+|payload_len 0->0	socket_put_buffer data to s(fd:17) size:24
+cuju_process_incoming_thread qemu_ft_trans_begin returns 24
+socket_get_buffer data from s(fd:18) size:24
+cuju_ft_trans_close
+socket_get_buffer data from s(fd:17) size:24
+cuju_ft_trans_close
+cuju_ft_trans_close vm_started.

@@ -64,6 +64,7 @@
 #define ARP_HTYPE_ETH 0x0001
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
+//#define ft_debug_mode_enable
 
 const unsigned int postcopy_ram_discard_version = 0;
 
@@ -109,7 +110,15 @@ static int announce_self_create(uint8_t *buf,
 
     return 60; /* len (FCS will be added by hardware) */
 }
+static inline double time_in_double(void)
+{
+   struct timespec ts;
+   double ret;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+   ret = ts.tv_sec + ((double)ts.tv_nsec) / 1e9L;
+   return ret;
 
+}
 static void qemu_announce_self_iter(NICState *nic, void *opaque)
 {
     uint8_t buf[60];
@@ -167,6 +176,7 @@ static ssize_t socket_put_buffer(void *opaque, const void *buf, size_t size)
     ssize_t len;
 
     do {
+        printf("%s data to s(fd:%d) size:%ld\n", __func__,s->fd, size);
         len = send(s->fd, (void *)buf, size, 0);
     } while (len == -1 && socket_error() == EINTR);
 
@@ -182,6 +192,7 @@ static int socket_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
     ssize_t len;
 
     do {
+        printf("%s data from s(fd:%d) size:%d\n", __func__,s->fd, size);
         len = qemu_recv(s->fd, buf, size, 0);
     } while (len == -1 && socket_error() == EINTR);
 
@@ -2161,9 +2172,9 @@ qemu_loadvm_section_dev(QEMUFile *f, MigrationIncomingState *mis)
     printf("entrynum = %d\n", ftdev.state_entry_num);
 #endif
     assert(ftdev.state_entry_num <= CUJU_FT_DEV_STATE_ENTRY_SIZE);
-#ifdef ft_debug_mode_enable
+//#ifdef ft_debug_mode_enable
     printf("%s num %d\n", __func__, ftdev.state_entry_num);
-#endif
+//#endif
     for (int i = 0; i < ftdev.state_entry_num; ++i) {
         int len = qemu_get_byte(f);
         qemu_get_buffer(f, (uint8_t *)idstr, len);
@@ -2194,7 +2205,7 @@ qemu_loadvm_section_dev(QEMUFile *f, MigrationIncomingState *mis)
         qemu_get_buffer(f, (uint8_t *)se->state_buf, len);
         se->state_buf[len] = QEMU_VM_EOF;
     }
-
+    printf("%s finish_time = %lf\n", __func__,time_in_double());
     return 0;
 }
 
@@ -2959,9 +2970,9 @@ void migrate_ft_trans_send_device_state_header(struct CUJUFTDev *ftdev, QEMUFile
     int i;
     qemu_put_byte(f, QEMU_VM_SECTION_DEV);
     qemu_put_byte(f, (uint8_t)ftdev->state_entry_num);
-	#ifdef ft_debug_mode_enable
-    printf("%s num %d\n", __func__, ftdev->state_entry_num);
-	#endif
+	//#ifdef ft_debug_mode_enable
+    printf("%s num %d, Sent QEMU_VM_SECTION_DEV header !!(%lf)\n", __func__, ftdev->state_entry_num,time_in_double());
+	//#endif
     for (i = 0; i < ftdev->state_entry_num; ++i) {
         SaveStateEntry *se = ftdev->state_entries[i];
         size_t len = strlen(se->idstr);
