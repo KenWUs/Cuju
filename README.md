@@ -1,7 +1,7 @@
 # Cuju: An Open Source Project for Virtualization-Based Fault Tolerance
 
 ================================================================
-TXTTT
+SSSSS
 Summary
 -------
 Virtualization technology could provide a unique benefit to protect any legacy application systems from hardware failures. The reliability of virtual machines running on virtualized servers is not only threatened by hardware failures beneath the whole virtual infrastructure, but also nosy hypervisors that essentially support virtual machines cannot be trusted.
