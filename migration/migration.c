@@ -175,6 +175,8 @@ static void migrate_run(MigrationState *s);
 int qio_ft_sock_fd = 0;
 static unsigned long trans_serial = 0; //ADD
 static unsigned long run_serial = 0;   //ADD
+static unsigned int Enter;
+
 // At the time setting up FT, current will pointer to 2nd MigrationState.
 static int migration_states_current;
 
@@ -2143,7 +2145,7 @@ static void migrate_fd_get_notify(void *opaque)
         s->fd = -1;
         trans_serial = 0;
         run_serial = 0;
-        
+        //kvm_share_mem_init(ram_size);
         //qemu_devices_reset();
         //qemu_register_reset(qbus_reset_all_fn, sysbus_get_default());
         //qemu_system_reset(VMRESET_SILENT);
@@ -2155,8 +2157,12 @@ static void migrate_fd_get_notify(void *opaque)
         kvm_shmem_stop_ft();
 
         qemu_iohandler_ft_pause(false);
-        vm_start_mig();
-        vm_start();
+        //cpu_ticks_init();
+        if(!Enter){
+            vm_start_mig();
+            vm_start();
+        }else
+            Enter = 0;
     }
 }
 
@@ -2338,6 +2344,7 @@ static int migrate_ft_trans_get_ready(void *opaque)
         dirty_page_tracking_logs_start_flush_output(s);
         migrate_set_ft_state(s, CUJU_FT_TRANSACTION_FLUSH_OUTPUT);
 
+        Enter = 1;
         //gft_broadcast_backup_done(s);
 	/*
         if (s->join.bitmaps_commit1 == ~0) {
@@ -2435,6 +2442,7 @@ static void ft_setup_migrate_state(MigrationState *s, int index)
     qemu_bh_set_mig_survive(s->flush_bh, true);
 
     qemu_set_fd_handler(s->fd, migrate_fd_get_notify, NULL, s);
+    printf("migrate_fd_get_notify s->fd = %d \n",s->fd);
     qemu_set_fd_survive_ft_pause(s->fd, true);
 }
 
@@ -2819,9 +2827,10 @@ static QEMUFile *cuju_setup_slave_receiver(int s, QEMUFile *devf, QEMUFile *ramf
 
     qemu_set_nonblock(dev_fd);
     qemu_set_fd_handler(dev_fd, cuju_ft_trans_incoming, NULL, f);
-
+    printf("cuju_ft_trans_incoming dev_fd = %d\n",dev_fd);
     qemu_set_nonblock(ram_fd);
     qemu_set_fd_handler(ram_fd, cuju_ft_trans_read_pages, NULL, f->opaque);
+    printf("cuju_ft_trans_read_pages dev_fd = %d\n",ram_fd);
 
     return f;
 }

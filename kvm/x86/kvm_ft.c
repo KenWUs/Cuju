@@ -476,7 +476,7 @@ static int confirm_prev_dirty_bitmap_clear(struct kvm *kvm, int cur_index)
 //                return -EINVAL;
 			}
 		}*/
-
+        printk("dirty_bitmap = %d\n", *dirty_bitmap);
         if(*dirty_bitmap != 0)
             printk("%s is still set.\n", __func__);
 	}
@@ -760,7 +760,13 @@ int kvm_shm_enable(struct kvm *kvm)
     printk("%s shm_enabled %d\n", __func__, ctx->shm_enabled);
     return 0;
 }
-
+int kvm_shm_disable(struct kvm *kvm)
+{
+    struct kvmft_context *ctx = &kvm->ft_context;
+    ctx->shm_enabled = 0;
+    printk("%s shm_disabled %d\n", __func__, ctx->shm_enabled);
+    return 0;
+}
 static int wait_for_other_mark(struct kvm_memory_slot *memslot,
                            int cur_index,
                            unsigned long gfn_off,
@@ -2700,9 +2706,11 @@ static int diff_and_transfer_all(struct kvm *kvm, int trans_index, int max_conn)
     clear_all_backup_transfer_bitmap(kvm, trans_index);
 #endif
 
-    if (dlist->put_off == 0)
+    if (dlist->put_off == 0){
         return 0;
-
+        printk("dlist = 0\n");
+    }
+    printk("dlist numbers\n");
     // wake up other diff_and_tran_kthread
     for (i = 1; i < info->nsocks; ++i)
         wake_up(&info->events[i]);

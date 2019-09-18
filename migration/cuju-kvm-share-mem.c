@@ -289,7 +289,7 @@ void kvm_shmem_stop_ft(void)
 
     //kvm_start_log_share_dirty_pages();
 
-    ret = kvm_vm_ioctl(kvm_state, KVM_SHM_ENABLE);
+    ret = kvm_vm_ioctl(kvm_state, KVM_SHM_DISABLE);
     if (ret) {
         fprintf(stderr, "%s failed: %d\n", __func__, ret);
         exit(ret);
@@ -1113,8 +1113,9 @@ static void* trans_ram_conn_thread_func(void *opaque)
         ret = dirty_pages_userspace_transfer(s->ram_fds[d->index]);
         assert(ret >= 0);
         s->ram_len += ret;
-
+        
         ret = kvm_start_kernel_transfer(s->cur_off, s->ram_fds[d->index], d->index, ft_ram_conn_count);
+        printf("ret:%d, s->cur_off:%d,  s->ram_fds[d->index]:%d,  d->index:%d,  ft_ram_conn_count:%d, \n",ret,s->cur_off, s->ram_fds[d->index], d->index, ft_ram_conn_count);
         printf("kvm ram finish kernel transfer s(%d) trans_serial = %ld, (%lf)\n",s->fd,s->trans_serial,time_in_double());
         assert(ret >= 0);
 

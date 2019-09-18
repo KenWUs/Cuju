@@ -1014,8 +1014,10 @@ void cuju_ft_trans_read_pages(void *opaque)
         if (ret < 0) {
             if (errno == EINTR)
                 continue;
-            if (errno == EAGAIN)
+            if (errno == EAGAIN){
+                printf("%s: Leave in (%lf)\n\n", __func__,time_in_double());
                 return;
+            }
             printf("%s recv %d err.\n", __func__, s->ram_fd);
             perror("recv err: ");
             goto clear;

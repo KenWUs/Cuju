@@ -4,6 +4,8 @@
         "main-loop.h": "c",
         "cutils.h": "c",
         "trace.h": "c",
-        "osdep.h": "c"
+        "osdep.h": "c",
+        "bitops.h": "c",
+        "memory.h": "c"
     }
 }
