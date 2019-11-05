@@ -23,6 +23,7 @@
 #include "hw/virtio/virtio-blk.h"
 #include "dataplane/virtio-blk.h"
 #include "block/scsi.h"
+#include "migration/cuju-kvm-share-mem.h"
 #ifdef __linux__
 # include <scsi/sg.h>
 #endif
@@ -31,10 +32,10 @@
 
 
 #define HEAD_LIST_INIT_SIZE  64
+static int quota = 10;
 // TODO there may be multiple virtual blocks, but for now we only need
 // to prove that retry-method works for one virtual block.
 VirtIOBlock *global_virtio_block;
-
 static void confirm_req_read_memory_mapped(VirtIOBlockReq *req)
 {
     if (req->in == NULL) {
@@ -155,7 +156,6 @@ static void virtio_blk_complete_head(VirtIOBlockReq *req)
     VirtIOBlock *s = global_virtio_block;
     ReqRecord *rec = req->record;
     int i;
-
     if (rec != NULL) {
         for (i=0 ; i<rec->len ; ++i) {
             if (rec->reqs[i] == req) {
@@ -244,7 +244,8 @@ static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
 
     // For CUJU-FT
     virtio_blk_pending_req_complete(req);
-    virtio_blk_complete_head(req);
+    if(req->callback == false)
+        virtio_blk_complete_head(req);
 }
 
 static int virtio_blk_handle_rw_error(VirtIOBlockReq *req, int error,
@@ -304,7 +305,8 @@ static void virtio_blk_rw_complete(void *opaque, int ret)
 
         virtio_blk_req_complete(req, VIRTIO_BLK_S_OK);
         block_acct_done(blk_get_stats(req->dev->blk), &req->acct);
-        virtio_blk_free_request(req);
+        if(req->callback == false)
+            virtio_blk_free_request(req);
     }
 }
 
@@ -567,14 +569,18 @@ static void virtio_blk_handle_scsi(VirtIOBlockReq *req)
         virtio_blk_free_request(req);
     }
 }
-
+static void direct_callback(void *opaque, int ret){
+    VirtIOBlockReq *req = opaque;
+    virtio_blk_complete_head(req);
+    virtio_blk_free_request(req);
+    ++quota;
+}
 static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
                                    int start, int num_reqs, int niov)
 {
     QEMUIOVector *qiov = &mrb->reqs[start]->qiov;
     int64_t sector_num = mrb->reqs[start]->sector_num;
     bool is_write = mrb->is_write;
-
     if (num_reqs > 1) {
         int i;
         struct iovec *tmp_iov = qiov->iov;
@@ -602,13 +608,22 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
                               is_write ? BLOCK_ACCT_WRITE : BLOCK_ACCT_READ,
                               num_reqs - 1);
     }
-
     if (is_write) {
-        blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
-                        virtio_blk_rw_complete, mrb->reqs[start]);
+        if(!ft_started || quota <= 0 ){
+            mrb->reqs[start]->callback = false;
+            blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
+                            virtio_blk_rw_complete, mrb->reqs[start]);
+        }else{
+            --quota;
+            mrb->reqs[start]->callback = true;
+            blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
+                            direct_callback, mrb->reqs[start]);
+            virtio_blk_rw_complete(mrb->reqs[start], 0);
+        }
     } else {
+        mrb->reqs[start]->callback = false;
         blk_aio_preadv(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
-                       virtio_blk_rw_complete, mrb->reqs[start]);
+                    virtio_blk_rw_complete, mrb->reqs[start]);
     }
 }
 

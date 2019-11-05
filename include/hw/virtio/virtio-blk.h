@@ -98,7 +98,9 @@ typedef struct VirtIOBlockReq {
 
     // For CUJU-FT
     ReqRecord *record;
+    bool callback;
 } VirtIOBlockReq;
+
 
 #define VIRTIO_BLK_MAX_MERGE_REQS 32
 

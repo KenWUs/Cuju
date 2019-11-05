@@ -598,7 +598,7 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
     }
 #endif
 
-    while (s->ft_serial == ft_serial && cuju_ft_trans_load_ready(s)) {   
+    //while (s->ft_serial == ft_serial && cuju_ft_trans_load_ready(s)) {   
         /*
             if backup receive checkalive header then s->check = 1 and the ACK1 header would set leftmost bit to be 1.   
             so s->check<<CUJU_FT_ALIVE_HEADER equal to 1<<15.
@@ -620,7 +620,7 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
 #ifdef ft_debug_mode_enable
         printf("%s try next %p->ft_serial = %ld/%ld ready %d\n", __func__, s, s->ft_serial, ft_serial, cuju_ft_trans_load_ready(s));
 #endif
-    }
+    //}
 out:
     qemu_mutex_lock(&cuju_load_mutex);
     cuju_is_load = 0;
