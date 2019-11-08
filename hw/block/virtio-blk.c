@@ -164,7 +164,9 @@ static void virtio_blk_complete_head(VirtIOBlockReq *req)
             }
         }
         assert(i<rec->len);
+        printf("--rec->left(req = %p ) -> %d \n",req,rec->left-1);
         if (--rec->left == 0) {
+            printf("clean !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
             QTAILQ_REMOVE(&s->record_list, rec, node);
             g_free(rec);
         }
@@ -208,6 +210,8 @@ static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
     VirtIODevice *vdev = VIRTIO_DEVICE(s);
 
     trace_virtio_blk_req_complete(req, status);
+    if(req->callback == false)
+        printf("Normal  callback    finish in  %p\n",req);
 
     if (kvmft_started()){
         confirm_req_read_memory_mapped(req);
@@ -570,9 +574,26 @@ static void virtio_blk_handle_scsi(VirtIOBlockReq *req)
     }
 }
 static void direct_callback(void *opaque, int ret){
-    VirtIOBlockReq *req = opaque;
-    virtio_blk_complete_head(req);
-    virtio_blk_free_request(req);
+    VirtIOBlockReq *next = opaque;
+
+    while (next) {
+        VirtIOBlockReq *req = next;
+        next = req->mr_next;        
+        if(req->callback == true){
+            printf("directly write callback %p  finish  quota = %d\n",req,quota);
+            virtio_blk_complete_head(req);
+            virtio_blk_free_request(req);
+        }
+    }
+    ReqRecord *rec;
+    VirtIOBlock *s = global_virtio_block;
+    int i;
+    QTAILQ_FOREACH(rec, &s->record_list, node) {        //every epoch record list
+        for (i = 0; i < rec->len; i++) {                //every request
+            printf("%p -> ",rec->reqs[i]);
+        }
+    }
+    printf("\n");
     ++quota;
 }
 static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
@@ -581,6 +602,9 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
     QEMUIOVector *qiov = &mrb->reqs[start]->qiov;
     int64_t sector_num = mrb->reqs[start]->sector_num;
     bool is_write = mrb->is_write;
+    ReqRecord *rec;
+    VirtIOBlock *s = global_virtio_block;
+    int i;
     if (num_reqs > 1) {
         int i;
         struct iovec *tmp_iov = qiov->iov;
@@ -610,18 +634,32 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
     }
     if (is_write) {
         if(!ft_started || quota <= 0 ){
-            mrb->reqs[start]->callback = false;
+            printf("SUSpend write callback from %p  quota = %d\n",mrb->reqs[start],quota);
+            for (i = start ; i < start + num_reqs; i++) 
+                mrb->reqs[i]->callback = false;
             blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
                             virtio_blk_rw_complete, mrb->reqs[start]);
         }else{
             --quota;
-            mrb->reqs[start]->callback = true;
+            printf("direct write callback from %p   quota = %d\n",mrb->reqs[start],quota);
+            for (i = start ; i < start + num_reqs; i++) 
+                mrb->reqs[i]->callback = true;
             blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
                             direct_callback, mrb->reqs[start]);
             virtio_blk_rw_complete(mrb->reqs[start], 0);
         }
     } else {
-        mrb->reqs[start]->callback = false;
+        QTAILQ_FOREACH(rec, &s->record_list, node) {        //every epoch record list
+            for (i = 0; i < rec->len; i++) {                //every request
+                if(rec->reqs[i] == mrb->reqs[start]){
+                    printf("have same request addresss in read/write    %p\n",rec->reqs[i]);
+                    break;
+                }
+            }
+        }
+        for (i = start ; i < start + num_reqs; i++) 
+            mrb->reqs[i]->callback = false;
+        printf("set read callback from %p   quota = %d\n",mrb->reqs[start],quota);
         blk_aio_preadv(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
                     virtio_blk_rw_complete, mrb->reqs[start]);
     }
@@ -817,6 +855,7 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
             trace_virtio_blk_handle_write(req, req->sector_num,
                                           req->qiov.size / BDRV_SECTOR_SIZE);
 			if (kvmft_started()) {
+                printf("temp write request %p   quota = %d\n",req,quota);
 				virtio_blk_save_write_head(s, req, head);
 #ifdef CONFIG_EPOCH_OUTPUT_TRIGGER
 				extern kvmft_notify_new_output();
@@ -826,6 +865,7 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
 			}
         } else {
             if (kvmft_started()) {
+                printf("temp read request %p    %d\n",req,ft_started);
                 qemu_iovec_alloc_by_external(&req->qiov, in_iov,
                                      in_num);
             }
