@@ -33,7 +33,7 @@
 #include "io/channel-socket.h"
 #include <linux/kvm.h>
 #include "migration/migration.h"
-
+int first_commit1 = true;
 static QemuMutex *cuju_buf_desc_mutex = NULL;
 static QemuCond *cuju_buf_desc_cond = NULL;
 
@@ -632,7 +632,7 @@ out:
 
 static int cuju_ft_trans_recv(CujuQEMUFileFtTrans *s)
 {
-    static int first_commit1 = true;
+    //static int first_commit1 = true;
     int ret;
 
     if (s->is_payload) {

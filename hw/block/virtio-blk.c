@@ -30,7 +30,7 @@
 #include "hw/virtio/virtio-bus.h"
 #include "hw/virtio/virtio-access.h"
 
-
+RCQ RCQ_List;
 #define HEAD_LIST_INIT_SIZE  64
 static int quota = 10;
 // TODO there may be multiple virtual blocks, but for now we only need
@@ -1247,6 +1247,96 @@ static void virtio_blk_save_device(VirtIODevice *vdev, QEMUFile *f)
     qemu_put_sbyte(f, 0);
 }
 
+static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
+                                  int version_id)
+{
+    VirtIOBlock *s = VIRTIO_BLK(vdev);
+    int t, i;
+
+    VirtIOBlockReq *rec;
+
+    QTAILQ_FOREACH(rec, &RCQ_List, node) {        
+        QTAILQ_REMOVE(&RCQ_List, rec, node);
+    }
+    g_free(rec);
+    QTAILQ_INIT(&RCQ_List);
+
+    MultiReqBuffer mrb = {
+        .num_reqs = 0,
+    };
+
+    // free all accumulated rq
+    while (s->rq) {
+        VirtIOBlockReq *req = s->rq;
+        s->rq = req->next;
+        g_free(req);
+    }
+    s->rq = NULL;
+
+    while ((t = qemu_get_sbyte(f))) {
+        if (t == 1) {
+            unsigned nvqs = s->conf.num_queues;
+            unsigned vq_idx = 0;
+            //VirtIOBlockReq *req;
+
+            if (nvqs > 1) {
+                vq_idx = qemu_get_be32(f);
+
+                if (vq_idx >= nvqs) {
+                    error_report("Invalid virtqueue index in request list: %#x",
+                                 vq_idx);
+                    return -EINVAL;
+                }
+            }
+
+            /* req = qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
+            virtio_blk_init_request(s, virtio_get_queue(vdev, vq_idx), req);
+            req->next = s->rq;
+            s->rq = req;
+
+            virtio_blk_handle_request(req, &mrb, 0);*/
+        } else if (t == 2) {
+            unsigned nvqs = s->conf.num_queues;
+            unsigned vq_idx = 0;
+            //VirtIOBlockReq *req;
+
+            if (nvqs > 1) {
+                vq_idx = qemu_get_be32(f);
+
+                if (vq_idx >= nvqs) {
+                    error_report("Invalid virtqueue index in request list: %#x",
+                                 vq_idx);
+                    return -EINVAL;
+                }
+            }
+
+            /* req = qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
+            virtio_blk_init_request(s, virtio_get_queue(vdev, vq_idx), req);
+
+            virtio_blk_handle_request(req, &mrb, 0);
+            printf("%s pending read request %p added\n", __func__, req);*/
+        } else if (t == 3) {
+            int len = qemu_get_be32(f);
+            if (len > 0) {
+                for (i = 0; i < len; i++) {
+                    int head = qemu_get_be32(f);
+                    int idx = qemu_get_be32(f);
+                    printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
+                    blk_io_plug(s->blk);
+                    VirtIOBlockReq *req = virtio_blk_get_request_from_head(vdev, head, idx);
+                    QTAILQ_INSERT_TAIL(&RCQ_List, req, node);
+                    blk_io_unplug(s->blk);
+                }
+            }
+        } else {
+            assert(0);
+        }
+    }
+    if(mrb.num_reqs)
+        virtio_blk_submit_multireq(s->blk, &mrb);
+    return 0;
+}
+
 static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
                                   int version_id)
 {
@@ -1316,12 +1406,14 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
             int len = qemu_get_be32(f);
             if (len > 0) {
                 for (i = 0; i < len; i++) {
-                    int head = qemu_get_be32(f);
-                    int idx = qemu_get_be32(f);
-                    printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
+                    qemu_get_be32(f);
+                    qemu_get_be32(f);
+                }
+                //virtio_blk_handle_write(req, &mrb);
+                VirtIOBlockReq *rec;
+                QTAILQ_FOREACH(rec, &RCQ_List, node) {        //every epoch record list
                     blk_io_plug(s->blk);
-                    VirtIOBlockReq *req = virtio_blk_get_request_from_head(vdev, head, idx);
-                    virtio_blk_handle_write(req, &mrb);
+                    virtio_blk_handle_write(rec, &mrb);
                     blk_io_unplug(s->blk);
                 }
             }
@@ -1472,6 +1564,7 @@ static void virtio_blk_class_init(ObjectClass *klass, void *data)
     vdc->reset = virtio_blk_reset;
     vdc->save = virtio_blk_save_device;
     vdc->load = virtio_blk_load_device;
+    vdc->load_blk = virtio_blk_load_blk;
     vdc->start_ioeventfd = virtio_blk_data_plane_start;
     vdc->stop_ioeventfd = virtio_blk_data_plane_stop;
 }

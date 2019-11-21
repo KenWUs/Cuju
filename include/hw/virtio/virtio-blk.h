@@ -99,8 +99,10 @@ typedef struct VirtIOBlockReq {
     // For CUJU-FT
     ReqRecord *record;
     bool callback;
-} VirtIOBlockReq;
 
+    QTAILQ_ENTRY(VirtIOBlockReq) node;
+} VirtIOBlockReq;
+typedef QTAILQ_HEAD(, VirtIOBlockReq) RCQ;
 
 #define VIRTIO_BLK_MAX_MERGE_REQS 32
 

@@ -139,8 +139,10 @@ typedef struct VirtioDeviceClass {
     /* Saving and loading of a device; trying to deprecate save/load
      * use vmsd for new devices.
      */
+    
     void (*save)(VirtIODevice *vdev, QEMUFile *f);
     int (*load)(VirtIODevice *vdev, QEMUFile *f, int version_id);
+    int (*load_blk)(VirtIODevice *vdev, QEMUFile *f, int version_id);
     const VMStateDescription *vmsd;
 } VirtioDeviceClass;
 
@@ -208,6 +210,7 @@ extern const VMStateInfo virtio_vmstate_info;
     }
 
 int virtio_load(VirtIODevice *vdev, QEMUFile *f, int version_id);
+int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id);
 
 void virtio_notify_config(VirtIODevice *vdev);
 
