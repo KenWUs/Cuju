@@ -64,7 +64,7 @@
 #define ARP_HTYPE_ETH 0x0001
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
-
+#define ft_debug_mode_enable
 const unsigned int postcopy_ram_discard_version = 0;
 
 static bool skip_section_footers;
@@ -2205,81 +2205,7 @@ qemu_loadvm_section_dev(QEMUFile *f, MigrationIncomingState *mis)
         qemu_get_buffer(f, (uint8_t *)se->state_buf, len);
         se->state_buf[len] = QEMU_VM_EOF;
     }
-if(!first_commit1){
-    uint8_t section_type;
-    int ret = 0;
-    uint32_t version_id;
-
-    int len;
-
-    //printf("%s (%8d) %d K \n", __func__, ++count, f->buf_size/1024);
-
-    if (qemu_savevm_state_blocked(NULL)) {
-        return -EINVAL;
-    }
-
-    if (f->buf)
-        g_free(f->buf);
-
-    QTAILQ_FOREACH(se, &savevm_state.handlers, entry) {
-        if(!se->vmsd || strcmp(((VMStateDescription *)se->vmsd)->name,"virtio-blk") != 0)
-            continue;
-        if (!se->state_buf)
-            continue;
-		#ifdef ft_debug_mode_enable
-        printf("%s %s\n", __func__, se->idstr);
-		#endif
-        f->buf = se->state_buf;
-        f->buf_index = 0;
-        f->buf_size = se->state_buf_size;
-        se->state_buf = NULL;
-        se->state_buf_size = 0;
-
-        section_type = qemu_get_byte(f);
-
-		#ifdef ft_debug_mode_enable
-        uint32_t section_id = qemu_get_be32(f);
-        printf("%s %d %d\n", __func__, section_type, section_id);
-		#else
-		qemu_get_be32(f);
-		#endif
-        assert(section_type == QEMU_VM_SECTION_FULL);
-
-		len = qemu_get_byte(f);
-        qemu_get_buffer(f, (uint8_t *)idstr, len);
-        idstr[len] = 0;
-        instance_id = qemu_get_be32(f);
-        version_id = qemu_get_be32(f);
-
-        /* Find savevm section */
-        assert(se == find_se(idstr, instance_id));
-
-        if (version_id > se->version_id) {
-            fprintf(stderr, "savevm: unsupported version %d for '%s' v%d\n",
-                    version_id, idstr, se->version_id);
-            ret = -EINVAL;
-            goto out;
-        }
-
-        ret = virtio_blk_load(f, se, version_id);
-        if (ret < 0) {
-            fprintf(stderr, "qemu: warning: error while loading state for instance 0x%x of device '%s'\n",
-                    instance_id, idstr);
-            goto out;
-        }
-        g_free(f->buf);
-        f->buf = g_malloc(IO_BUF_SIZE);
-        f->buf_index = 0;
-        f->buf_size = 0;
-    }
-
-    cpu_synchronize_all_post_init();
-
     return 0;
-out:
-    return ret;
-}
-return 0;
 }
 
 static int qemu_loadvm_state_main(QEMUFile *f, MigrationIncomingState *mis)
@@ -3056,7 +2982,84 @@ void migrate_ft_trans_send_device_state_header(struct CUJUFTDev *ftdev, QEMUFile
         qemu_put_be32(f, ftdev->state_entry_lens[i]);
     }
 }
+int qemu_loadvm_blk_dev(QEMUFile *f){
+    //if(!first_commit1){
+        uint8_t section_type;
+        int ret = 0;
+        uint32_t instance_id, version_id;
+        SaveStateEntry *se;
 
+        char idstr[257];
+        int len;
+
+        //printf("%s (%8d) %d K \n", __func__, ++count, f->buf_size/1024);
+
+        if (qemu_savevm_state_blocked(NULL)) {
+            return -EINVAL;
+        }
+
+        if (f->buf)
+            g_free(f->buf);
+
+        QTAILQ_FOREACH(se, &savevm_state.handlers, entry) {
+            if(!se->vmsd || strcmp(((VMStateDescription *)se->vmsd)->name,"virtio-blk") != 0)
+                continue;
+            if (!se->state_buf)
+                continue;
+            #ifdef ft_debug_mode_enable
+            printf("%s %s\n", __func__, se->idstr);
+            #endif
+            f->buf = se->state_buf;
+            f->buf_index = 0;
+            f->buf_size = se->state_buf_size;
+            se->state_buf = NULL;
+            se->state_buf_size = 0;
+
+            section_type = qemu_get_byte(f);
+
+            #ifdef ft_debug_mode_enable
+            uint32_t section_id = qemu_get_be32(f);
+            printf("%s %d %d\n", __func__, section_type, section_id);
+            #else
+            qemu_get_be32(f);
+            #endif
+            assert(section_type == QEMU_VM_SECTION_FULL);
+
+            len = qemu_get_byte(f);
+            qemu_get_buffer(f, (uint8_t *)idstr, len);
+            idstr[len] = 0;
+            instance_id = qemu_get_be32(f);
+            version_id = qemu_get_be32(f);
+
+            /* Find savevm section */
+            assert(se == find_se(idstr, instance_id));
+
+            if (version_id > se->version_id) {
+                fprintf(stderr, "savevm: unsupported version %d for '%s' v%d\n",
+                        version_id, idstr, se->version_id);
+                ret = -EINVAL;
+                goto out;
+            }
+
+            ret = virtio_blk_load(f, se, version_id);
+            if (ret < 0) {
+                fprintf(stderr, "qemu: warning: error while loading state for instance 0x%x of device '%s'\n",
+                        instance_id, idstr);
+                goto out;
+            }
+            g_free(f->buf);
+            f->buf = g_malloc(IO_BUF_SIZE);
+            f->buf_index = 0;
+            f->buf_size = 0;
+        }
+
+        cpu_synchronize_all_post_init();
+
+        return 0;
+    out:
+        return ret;
+    //}
+}
 int qemu_loadvm_dev(QEMUFile *f)
 {
     uint8_t section_type;

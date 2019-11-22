@@ -1851,10 +1851,6 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
     VirtioBusClass *k = VIRTIO_BUS_GET_CLASS(qbus);
     VirtioDeviceClass *vdc = VIRTIO_DEVICE_GET_CLASS(vdev);
 
-    /*
-     * We poison the endianness to ensure it does not get used before
-     * subsections have been loaded.
-     */
     vdev->device_endian = VIRTIO_DEVICE_ENDIAN_UNKNOWN;
 
     if (k->load_config) {
@@ -1871,23 +1867,10 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
     }
     qemu_get_be32s(f, &features);
 
-    /*
-     * Temporarily set guest_features low bits - needed by
-     * virtio net load code testing for VIRTIO_NET_F_CTRL_GUEST_OFFLOADS
-     * VIRTIO_NET_F_GUEST_ANNOUNCE and VIRTIO_NET_F_CTRL_VQ.
-     *
-     * Note: devices should always test host features in future - don't create
-     * new dependencies like this.
-     */
     vdev->guest_features = features;
 
     config_len = qemu_get_be32(f);
 
-    /*
-     * There are cases where the incoming config can be bigger or smaller
-     * than what we have; so load what we have space for, and skip
-     * any excess that's in the stream.
-     */
     qemu_get_buffer(f, vdev->config, MIN(config_len, vdev->config_len));
 
     while (config_len > vdev->config_len) {
@@ -1903,7 +1886,14 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
     }
 
     for (i = 0; i < num; i++) {
-        vdev->vq[i].vring.num = qemu_get_be32(f);
+        qemu_get_be32(f);
+        if (k->has_variable_vring_alignment) {
+            qemu_get_be32(f);
+        }
+        qemu_get_be64(f);
+        qemu_get_be16s(f, &vdev->vq[i].last_avail_idx);
+
+        /*vdev->vq[i].vring.num = qemu_get_be32(f);
         if (k->has_variable_vring_alignment) {
             vdev->vq[i].vring.align = qemu_get_be32(f);
         }
@@ -1913,7 +1903,6 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
         vdev->vq[i].notification = true;
 
         if (vdev->vq[i].vring.desc) {
-            /* XXX virtio-1 devices */
             virtio_queue_update_rings(vdev, i);
         } else if (vdev->vq[i].last_avail_idx) {
             error_report("VQ %d address 0x0 "
@@ -1925,10 +1914,10 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
             ret = k->load_queue(qbus->parent, i, f);
             if (ret)
                 return ret;
-        }
+        }*/
     }
-    virtio_notify_vector(vdev, VIRTIO_NO_VECTOR);
-    
+
+    //virtio_notify_vector(vdev, VIRTIO_NO_VECTOR);
     if (vdc->load != NULL) {
         ret = vdc->load_blk(vdev, f, version_id);
         if (ret) {
@@ -1936,24 +1925,24 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
         }
     }
 
-    /* if (vdc->vmsd) {
-        ret = vmstate_load_state(f, vdc->vmsd, vdev, version_id);
+    if (vdc->vmsd) {
+        ret = virtio_blk_load_index(f, vdc->vmsd, vdev, version_id);
         if (ret) {
             return ret;
         }
-    }*/
+    }
 
     /* Subsections */
-    /* ret = vmstate_load_state(f, &vmstate_virtio, vdev, 1);
+    ret = virtio_blk_load_index(f, &vmstate_virtio, vdev, 1);
     if (ret) {
         return ret;
-    }*/
+    }
 
     /* if (vdev->device_endian == VIRTIO_DEVICE_ENDIAN_UNKNOWN) {
         vdev->device_endian = virtio_default_endian();
-    }*/
+    }
 
-    /* if (virtio_64bit_features_needed(vdev)) {
+    if (virtio_64bit_features_needed(vdev)) {
         uint64_t features64 = vdev->guest_features;
         if (virtio_set_features_nocheck(vdev, features64) < 0) {
             error_report("Features 0x%" PRIx64 " unsupported. "

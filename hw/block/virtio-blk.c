@@ -1274,6 +1274,7 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
     s->rq = NULL;
 
     while ((t = qemu_get_sbyte(f))) {
+        printf("t = %d\n",t);
         if (t == 1) {
             unsigned nvqs = s->conf.num_queues;
             unsigned vq_idx = 0;
@@ -1318,14 +1319,18 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
         } else if (t == 3) {
             int len = qemu_get_be32(f);
             if (len > 0) {
+                VirtIOBlockReq *req;
                 for (i = 0; i < len; i++) {
                     int head = qemu_get_be32(f);
                     int idx = qemu_get_be32(f);
                     printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
                     blk_io_plug(s->blk);
-                    VirtIOBlockReq *req = virtio_blk_get_request_from_head(vdev, head, idx);
+                    req = virtio_blk_get_request_from_head(vdev, head, idx);
                     QTAILQ_INSERT_TAIL(&RCQ_List, req, node);
                     blk_io_unplug(s->blk);
+                }
+                QTAILQ_FOREACH(req, &RCQ_List, node) {              //every epoch record list
+                    printf("%p -> ",req);
                 }
             }
         } else {

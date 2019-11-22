@@ -562,7 +562,7 @@ static void cuju_ft_trans_load(CujuQEMUFileFtTrans *s)
 	// check protocol in qemu_loadvm_state()
 	// qemu_loadvm_state(s->file, 1);
     qemu_loadvm_state(s->file, 1);
-
+    qemu_loadvm_blk_dev(s->file);
     cuju_ft_trans_clean_buf(s);
 
     qemu_mutex_lock(&cuju_load_mutex);
@@ -679,7 +679,6 @@ static int cuju_ft_trans_recv(CujuQEMUFileFtTrans *s)
 
     case CUJU_QEMU_VM_TRANSACTION_COMMIT1:
         s->is_payload = 0;
-
         trace_cuju_ft_trans_cb(s->get_ready);
 
         ret = cuju_ft_trans_try_load(s);
@@ -692,7 +691,6 @@ static int cuju_ft_trans_recv(CujuQEMUFileFtTrans *s)
             printf("first commit\n");
             qemu_loadvm_dev(s->file);
         }
-
         break;
 
     case CUJU_QEMU_VM_TRANSACTION_ATOMIC:
