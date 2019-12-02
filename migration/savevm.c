@@ -64,7 +64,6 @@
 #define ARP_HTYPE_ETH 0x0001
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
-#define ft_debug_mode_enable
 const unsigned int postcopy_ram_discard_version = 0;
 
 static bool skip_section_footers;

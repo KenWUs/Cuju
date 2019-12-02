@@ -219,7 +219,28 @@ static void virtio_pci_save_queue(DeviceState *d, int n, QEMUFile *f)
     if (msix_present(&proxy->pci_dev))
         qemu_put_be16(f, virtio_queue_vector(vdev, n));
 }
+static int virtio_pci_blk_load_config(DeviceState *d, QEMUFile *f)
+{
+    VirtIOPCIProxy *proxy = to_virtio_pci_proxy(d);
+    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
 
+    int ret;
+    ret = pci_device_load(&proxy->pci_dev, f);
+    if (ret) {
+        return ret;
+    }
+    msix_unuse_all_vectors(&proxy->pci_dev);
+    msix_load(&proxy->pci_dev, f);
+    if (msix_present(&proxy->pci_dev)) {
+        qemu_get_be16s(f, &vdev->config_vector);
+    } else {
+        vdev->config_vector = VIRTIO_NO_VECTOR;
+    }
+    if (vdev->config_vector != VIRTIO_NO_VECTOR) {
+        return msix_vector_use(&proxy->pci_dev, vdev->config_vector);
+    }
+    return 0;
+}
 static int virtio_pci_load_config(DeviceState *d, QEMUFile *f)
 {
     VirtIOPCIProxy *proxy = to_virtio_pci_proxy(d);
@@ -242,7 +263,24 @@ static int virtio_pci_load_config(DeviceState *d, QEMUFile *f)
     }
     return 0;
 }
+static int virtio_pci_blk_load_queue(DeviceState *d, int n, QEMUFile *f)
+{
+    VirtIOPCIProxy *proxy = to_virtio_pci_proxy(d);
+    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
 
+    uint16_t vector;
+    if (msix_present(&proxy->pci_dev)) {
+        qemu_get_be16s(f, &vector);
+    } else {
+        vector = VIRTIO_NO_VECTOR;
+    }
+    virtio_queue_set_vector(vdev, n, vector);
+    if (vector != VIRTIO_NO_VECTOR) {
+        return msix_vector_use(&proxy->pci_dev, vector);
+    }
+
+    return 0;
+}
 static int virtio_pci_load_queue(DeviceState *d, int n, QEMUFile *f)
 {
     VirtIOPCIProxy *proxy = to_virtio_pci_proxy(d);
@@ -2505,8 +2543,10 @@ static void virtio_pci_bus_class_init(ObjectClass *klass, void *data)
     bus_class->max_dev = 1;
     k->notify = virtio_pci_notify;
     k->save_config = virtio_pci_save_config;
+    k->blk_load_config = virtio_pci_blk_load_config;
     k->load_config = virtio_pci_load_config;
     k->save_queue = virtio_pci_save_queue;
+    k->blk_load_queue = virtio_pci_blk_load_queue;
     k->load_queue = virtio_pci_load_queue;
     k->save_extra_state = virtio_pci_save_extra_state;
     k->load_extra_state = virtio_pci_load_extra_state;

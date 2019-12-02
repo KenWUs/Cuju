@@ -149,13 +149,13 @@ int virtio_blk_load_index(QEMUFile *f, const VMStateDescription *vmsd,
         }
         field++;
     }
-    /*ret = vmstate_subsection_load(f, vmsd, opaque);
+    ret = vmstate_subsection_load(f, vmsd, opaque);
     if (ret != 0) {
         return ret;
     }
     if (vmsd->post_load) {
         ret = vmsd->post_load(opaque, version_id);
-    }*/
+    }
     trace_vmstate_load_state_end(vmsd->name, "end", ret);
     return ret;
 }

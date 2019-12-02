@@ -582,7 +582,14 @@ void pci_device_save(PCIDevice *s, QEMUFile *f)
     /* Restore the interrupt status bit. */
     pci_update_irq_status(s);
 }
-
+int pci_blk_device_load(PCIDevice *s, QEMUFile *f)
+{
+    int ret;
+    ret = virtio_blk_load_index(f, pci_get_vmstate(s), s, s->version_id);
+    /* Restore the interrupt status bit. */
+    pci_update_irq_status(s);
+    return ret;
+}
 int pci_device_load(PCIDevice *s, QEMUFile *f)
 {
     int ret;

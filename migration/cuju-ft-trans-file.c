@@ -562,13 +562,13 @@ static void cuju_ft_trans_load(CujuQEMUFileFtTrans *s)
 	// check protocol in qemu_loadvm_state()
 	// qemu_loadvm_state(s->file, 1);
     qemu_loadvm_state(s->file, 1);
-    qemu_loadvm_blk_dev(s->file);
     cuju_ft_trans_clean_buf(s);
 
     qemu_mutex_lock(&cuju_load_mutex);
     cuju_is_load = 0;
     qemu_cond_broadcast(&cuju_load_cond);
     qemu_mutex_unlock(&cuju_load_mutex);
+
 
 #ifdef ft_debug_mode_enable
     qemu_gettimeofday(&etime);
@@ -603,6 +603,12 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
             if backup receive checkalive header then s->check = 1 and the ACK1 header would set leftmost bit to be 1.   
             so s->check<<CUJU_FT_ALIVE_HEADER equal to 1<<15.
         */   
+        cuju_ft_trans_load(s);
+
+        qemu_fflush(s->file);
+        qemu_loadvm_blk_dev(s->file);
+
+        
         ret = cuju_ft_trans_send_header(s,s->check<<CUJU_FT_ALIVE_HEADER|CUJU_QEMU_VM_TRANSACTION_ACK1, 0);
         if(s->check)
         {
@@ -614,7 +620,8 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
             printf("%s send ack failed.\n", __func__);
             goto out;
         }
-        cuju_ft_trans_load(s);
+
+
         s = cuju_ft_trans_get_next(s);
         ft_serial++;
 #ifdef ft_debug_mode_enable
