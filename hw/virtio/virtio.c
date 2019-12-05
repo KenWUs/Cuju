@@ -1911,8 +1911,8 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
         qemu_get_be16s(f, &vdev->vq[i].last_avail_idx);
         vdev->vq[i].signalled_used_valid = false;
         vdev->vq[i].notification = true;
-        printf("last_avail_idx = %d\n",vdev->vq[i].last_avail_idx);
-        printf("used_idx = %d\n",vdev->vq[i].used_idx);
+        //printf("last_avail_idx = %d\n",vdev->vq[i].last_avail_idx);
+        //printf("used_idx = %d\n",vdev->vq[i].used_idx);
         if (vdev->vq[i].vring.desc) {
             /* XXX virtio-1 devices */
             virtio_queue_update_rings(vdev, i);
