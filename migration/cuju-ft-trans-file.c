@@ -605,7 +605,7 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
         */   
         cuju_ft_trans_load(s);
 
-        qemu_fflush(s->file);
+        //qemu_fflush(s->file);
         qemu_loadvm_blk_dev(s->file);
 
         

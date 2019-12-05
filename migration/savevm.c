@@ -2987,7 +2987,6 @@ int qemu_loadvm_blk_dev(QEMUFile *f){
         int ret = 0;
         uint32_t instance_id, version_id;
         SaveStateEntry *se;
-
         char idstr[257];
         int len;
 
@@ -3003,16 +3002,23 @@ int qemu_loadvm_blk_dev(QEMUFile *f){
         QTAILQ_FOREACH(se, &savevm_state.handlers, entry) {
             if(!se->vmsd || strcmp(((VMStateDescription *)se->vmsd)->name,"virtio-blk") != 0)
                 continue;
-            if (!se->state_buf)
+
+            //uint8_t* tmp = g_malloc(se->state_buf_size);
+            //memcpy(tmp,se->state_buf,se->state_buf_size);
+
+            if (!se->state_buf){
+                if(se->vmsd)
+                    printf("@@@@@@@@@@@@@@@@@@@@ vmsd->name = %s is NULL @@@@@@@@@@@@@@@@@@@@\n",((VMStateDescription*)se->vmsd)->name);
                 continue;
+            }
             #ifdef ft_debug_mode_enable
             printf("%s %s\n", __func__, se->idstr);
             #endif
             f->buf = se->state_buf;
             f->buf_index = 0;
             f->buf_size = se->state_buf_size;
-            se->state_buf = NULL;
-            se->state_buf_size = 0;
+            //se->state_buf = NULL;
+            //se->state_buf_size = 0;
 
             section_type = qemu_get_byte(f);
 
@@ -3046,7 +3052,7 @@ int qemu_loadvm_blk_dev(QEMUFile *f){
                         instance_id, idstr);
                 goto out;
             }
-            g_free(f->buf);
+            //g_free(f->buf);
             f->buf = g_malloc(IO_BUF_SIZE);
             f->buf_index = 0;
             f->buf_size = 0;
@@ -3065,7 +3071,7 @@ int qemu_loadvm_dev(QEMUFile *f)
     int ret = 0;
     uint32_t instance_id, version_id;
     SaveStateEntry *se;
-
+    
     char idstr[257];
     int len;
 
@@ -3079,8 +3085,9 @@ int qemu_loadvm_dev(QEMUFile *f)
         g_free(f->buf);
 
     QTAILQ_FOREACH(se, &savevm_state.handlers, entry) {
-        if (!se->state_buf)
+        if (!se->state_buf){
             continue;
+        }
 		#ifdef ft_debug_mode_enable
         printf("%s %s\n", __func__, se->idstr);
 		#endif

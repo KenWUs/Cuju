@@ -32,7 +32,7 @@
 
 RCQ RCQ_List;
 #define HEAD_LIST_INIT_SIZE  64
-static int quota = 10;
+static int quota = 0;
 // TODO there may be multiple virtual blocks, but for now we only need
 // to prove that retry-method works for one virtual block.
 VirtIOBlock *global_virtio_block;
@@ -441,10 +441,13 @@ static VirtIOBlockReq *virtio_blk_get_request_from_head(VirtIODevice *vdev, unsi
         }
 
         /* We always touch the last byte, so just see how big in_iov is.  */
-        req->in_len = iov_size(in_iov, in_num);
+        /* req->in_len = iov_size(in_iov, in_num);
         req->in = (void *)in_iov[in_num - 1].iov_base
                 + in_iov[in_num - 1].iov_len
-                - sizeof(struct virtio_blk_inhdr);
+                - sizeof(struct virtio_blk_inhdr);*/
+        req->in_len = 0;
+        req->in = NULL;
+                
         iov_discard_back(in_iov, &in_num, sizeof(struct virtio_blk_inhdr));
 
         qemu_iovec_init_external(&req->qiov, iov, out_num);
@@ -1277,7 +1280,7 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
     VirtIOBlockReq *rec;
 
     QTAILQ_FOREACH(rec, &RCQ_List, node) {   
-        /*if (kvmft_started()){
+        /* if (kvmft_started()){
             confirm_req_read_memory_mapped(rec);
         }else{
             if (rec->in == NULL) {
@@ -1293,18 +1296,21 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
         } 
         stb_p(&rec->in->status, VIRTIO_BLK_S_OK);
         virtqueue_push(rec->vq, &rec->elem, rec->in_len);
-        virtio_notify(vdev, rec->vq);  
-        */
+        virtio_notify(vdev, rec->vq);  */
+
+        //virtio_blk_req_complete(rec, VIRTIO_BLK_S_IOERR);
+        //block_acct_invalid(blk_get_stats(rec->dev->blk), BLOCK_ACCT_WRITE);
+
         QTAILQ_REMOVE(&RCQ_List, rec, node);
-        g_free(rec);
+        virtio_blk_free_request(rec);
     }
     QTAILQ_INIT(&RCQ_List);
 
 
 
-    MultiReqBuffer mrb = {
+    /* MultiReqBuffer mrb = {
         .num_reqs = 0,
-    };
+    };*/
 
     // free all accumulated rq
     while (s->rq) {
@@ -1315,7 +1321,7 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
     s->rq = NULL;
 
     while ((t = qemu_get_sbyte(f))) {
-        printf("tttt = %d\n",t);
+        //printf("tttt = %d\n",t);
         if (t == 1) {
             unsigned nvqs = s->conf.num_queues;
             unsigned vq_idx = 0;
@@ -1363,27 +1369,27 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
                 for (i = 0; i < len; i++) {
                     int head = qemu_get_be32(f);
                     int idx = qemu_get_be32(f);
-                    printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
+                    //printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
                     //blk_io_plug(s->blk);
                     req = virtio_blk_get_request_from_head(vdev, head, idx);
-                    printf("req[%d] = %p \n",i,req);
+                    //printf("req[%d] = %p \n",i,req);
                     if(req){
                         //printf("Recv sector_num = %ld\n",req->sector_num);
                         QTAILQ_INSERT_TAIL(&RCQ_List, req, node);
                     }
                     //blk_io_unplug(s->blk);
                 }
-                QTAILQ_FOREACH(req, &RCQ_List, node) {              //every epoch record list
+                /* QTAILQ_FOREACH(req, &RCQ_List, node) {              //every epoch record list
                     printf("%p -> ",req);
                 }
-                printf("\n");
+                printf("\n");*/
             }
         } else {
             assert(0);
         }
     }
-    if(mrb.num_reqs)
-        virtio_blk_submit_multireq(s->blk, &mrb);
+    //if(mrb.num_reqs)
+    //    virtio_blk_submit_multireq(s->blk, &mrb);
     return 0;
 }
 
@@ -1391,6 +1397,7 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
                                   int version_id)
 {
     VirtIOBlock *s = VIRTIO_BLK(vdev);
+    static bool enter = FALSE;
     int t, i;
 
     MultiReqBuffer mrb = {
@@ -1455,16 +1462,21 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
         } else if (t == 3) {
             int len = qemu_get_be32(f);
             if (len > 0) {
+
+
                 for (i = 0; i < len; i++) {
                     qemu_get_be32(f);
                     qemu_get_be32(f);
                 }
-                //virtio_blk_handle_write(req, &mrb);
-                VirtIOBlockReq *rec;
-                QTAILQ_FOREACH(rec, &RCQ_List, node) {        //every epoch record list
-                    blk_io_plug(s->blk);
-                    virtio_blk_handle_write(rec, &mrb);
-                    blk_io_unplug(s->blk);
+                
+                if(enter == FALSE){
+                    VirtIOBlockReq *rec;
+                    QTAILQ_FOREACH(rec, &RCQ_List, node) {        //every epoch record list
+                        blk_io_plug(s->blk);
+                        virtio_blk_handle_write(rec, &mrb);
+                        blk_io_unplug(s->blk);
+                    }
+                    enter = TRUE;
                 }
             }
         } else {
