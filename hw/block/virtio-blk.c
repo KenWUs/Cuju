@@ -32,7 +32,7 @@
 
 RCQ RCQ_List;
 #define HEAD_LIST_INIT_SIZE  64
-static int quota = 0;
+static int quota = 10;
 // TODO there may be multiple virtual blocks, but for now we only need
 // to prove that retry-method works for one virtual block.
 VirtIOBlock *global_virtio_block;
@@ -239,9 +239,9 @@ static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
     }
 
     stb_p(&req->in->status, status);
-    //if((req->callback == false && ft_started) || (!ft_started)){
+    if((req->callback == false && ft_started) || (!ft_started)){
         virtqueue_push(req->vq, &req->elem, req->in_len);
-    //}
+    }
     if (s->dataplane_started && !s->dataplane_disabled) {
         virtio_blk_data_plane_notify(s->dataplane, req->vq);
     } else {
@@ -600,7 +600,7 @@ static void direct_callback(void *opaque, int ret){
         next = req->mr_next;        
         if(req->callback == true){
             //printf("directly write callback %p  finish  quota = %d\n",req,quota);
-            //virtqueue_push(req->vq, &req->elem, req->in_len);
+            virtqueue_push(req->vq, &req->elem, req->in_len);
             virtio_blk_complete_head(req);
             virtio_blk_free_request(req);
         }
