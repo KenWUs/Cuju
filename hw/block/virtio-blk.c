@@ -597,9 +597,16 @@ static void direct_callback(void *opaque, int ret){
 
     while (next) {
         VirtIOBlockReq *req = next;
+        VirtIOBlock *s = req->dev;
+        VirtIODevice *vdev = VIRTIO_DEVICE(s);
         next = req->mr_next;        
         if(req->callback == true){
             //printf("directly write callback %p  finish  quota = %d\n",req,quota);
+            if (s->dataplane_started && !s->dataplane_disabled) {
+                virtio_blk_data_plane_notify(s->dataplane, req->vq);
+            } else {
+                virtio_notify(vdev, req->vq);
+            }
             virtqueue_push(req->vq, &req->elem, req->in_len);
             virtio_blk_complete_head(req);
             virtio_blk_free_request(req);
