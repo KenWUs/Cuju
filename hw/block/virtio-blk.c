@@ -239,9 +239,9 @@ static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
     }
 
     stb_p(&req->in->status, status);
-    if((req->callback == false && ft_started) || (!ft_started)){
+    if(req->callback == false)
         virtqueue_push(req->vq, &req->elem, req->in_len);
-    }
+
     if (s->dataplane_started && !s->dataplane_disabled) {
         virtio_blk_data_plane_notify(s->dataplane, req->vq);
     } else {
@@ -851,7 +851,7 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
         virtio_error(vdev, "virtio-blk request inhdr too short");
         return -1;
     }
-
+    req->callback = false;
     /* We always touch the last byte, so just see how big in_iov is.  */
     if (kvmft_started()) {
         req->in = NULL;
