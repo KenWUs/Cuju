@@ -99,6 +99,10 @@ typedef struct VirtIOBlockReq {
     // For CUJU-FT
     ReqRecord *record;
     bool callback;
+    int compareHead;
+    int64_t checkSector;
+    bool remain;
+    bool isWrite;
 
     QTAILQ_ENTRY(VirtIOBlockReq) node;
 } VirtIOBlockReq;
