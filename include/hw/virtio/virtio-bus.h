@@ -45,9 +45,7 @@ typedef struct VirtioBusClass {
     void (*save_config)(DeviceState *d, QEMUFile *f);
     void (*save_queue)(DeviceState *d, int n, QEMUFile *f);
     void (*save_extra_state)(DeviceState *d, QEMUFile *f);
-    int (*blk_load_config)(DeviceState *d, QEMUFile *f);
     int (*load_config)(DeviceState *d, QEMUFile *f);
-    int (*blk_load_queue)(DeviceState *d, int n, QEMUFile *f);
     int (*load_queue)(DeviceState *d, int n, QEMUFile *f);
     int (*load_done)(DeviceState *d, QEMUFile *f);
     int (*load_extra_state)(DeviceState *d, QEMUFile *f);

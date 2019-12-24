@@ -129,7 +129,6 @@ int virtio_blk_load_index(QEMUFile *f, const VMStateDescription *vmsd,
                                              field->vmsd->version_id);
                 } else {
                     ret = field->info->blk(f, addr, size);
-
                 }
                 if (ret >= 0) {
                     ret = qemu_file_get_error(f);

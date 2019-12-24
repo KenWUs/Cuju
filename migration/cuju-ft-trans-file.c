@@ -604,8 +604,6 @@ static int cuju_ft_trans_try_load(CujuQEMUFileFtTrans *s)
             so s->check<<CUJU_FT_ALIVE_HEADER equal to 1<<15.
         */   
         cuju_ft_trans_load(s);
-
-        //qemu_fflush(s->file);
         qemu_loadvm_blk_dev(s->file);
         ret = cuju_ft_trans_send_header(s,s->check<<CUJU_FT_ALIVE_HEADER|CUJU_QEMU_VM_TRANSACTION_ACK1, 0);
         if(s->check)
@@ -637,7 +635,6 @@ out:
 
 static int cuju_ft_trans_recv(CujuQEMUFileFtTrans *s)
 {
-    //static int first_commit1 = true;
     int ret;
 
     if (s->is_payload) {

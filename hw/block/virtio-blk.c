@@ -32,7 +32,7 @@
 
 RCQ RCQ_List;
 #define HEAD_LIST_INIT_SIZE  64
-static int quota = 1;
+static int quota = 10;
 // TODO there may be multiple virtual blocks, but for now we only need
 // to prove that retry-method works for one virtual block.
 VirtIOBlock *global_virtio_block;
@@ -143,7 +143,7 @@ static void virtio_blk_init_request(VirtIOBlock *s, VirtQueue *vq,
     req->mr_next = NULL;
     req->record = NULL;
     req->callback = false;
-    req->isWrite = false;
+    req->remain = false;
     req->compareHead = -1;
 }
 
@@ -167,9 +167,7 @@ static void virtio_blk_complete_head(VirtIOBlockReq *req)
             }
         }
         assert(i<rec->len);
-        //printf("--rec->left(req = %p ) -> %d \n",req,rec->left-1);
         if (--rec->left == 0) {
-            //printf("clean !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
             QTAILQ_REMOVE(&s->record_list, rec, node);
             g_free(rec);
         }
@@ -213,8 +211,6 @@ static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
     VirtIODevice *vdev = VIRTIO_DEVICE(s);
 
     trace_virtio_blk_req_complete(req, status);
-    //if(req->callback == false)
-    //    printf("Normal  callback    finish in  %p\n",req);
 
     if (kvmft_started()){
         confirm_req_read_memory_mapped(req);
@@ -286,6 +282,11 @@ static void virtio_blk_rw_complete(void *opaque, int ret)
     while (next) {
         VirtIOBlockReq *req = next;
         next = req->mr_next;
+        if(req->callback && req->remain){
+            virtio_blk_complete_head(req);
+            virtio_blk_free_request(req);
+            continue;
+        }
         trace_virtio_blk_rw_complete(req, ret);
 
         if (!kvmft_started() && req->qiov.nalloc != -1) {
@@ -394,72 +395,52 @@ static VirtIOBlockReq *virtio_blk_alloc_request(VirtIOBlock *s)
     return req;
 }
 */
-static inline double time_in_double(void)
-{
-   struct timespec ts;
-   double ret;
-   clock_gettime(CLOCK_MONOTONIC, &ts);
-   ret = ts.tv_sec + ((double)ts.tv_nsec) / 1e9L;
-   return ret;
-}
 static VirtIOBlockReq *virtio_blk_get_request_from_head(VirtIODevice *vdev, unsigned int head, unsigned int idx)
 {
-    VirtIOBlock *s;
-    VirtIOBlockReq *req;
+    VirtIOBlock *s = VIRTIO_BLK(vdev);
+    VirtIOBlockReq *req = virtqueue_get(virtio_get_queue(vdev, idx), sizeof(VirtIOBlockReq), head);
     uint32_t type;
-    double startTime = time_in_double();
-    do{
-        type = 0;
-        s = VIRTIO_BLK(vdev);
-        req = virtqueue_get(virtio_get_queue(vdev, idx), sizeof(VirtIOBlockReq), head);
-        if (req != NULL) {
-            virtio_blk_init_request(s, virtio_get_queue(vdev, idx), req);
-        }
-        else {
-            return NULL;
-        }
+    if (req != NULL) {
+        virtio_blk_init_request(s, virtio_get_queue(vdev, idx), req);
+    }
+    else {
+        return NULL;
+    }
 
-        struct iovec *in_iov = req->elem.in_sg;
-        struct iovec *iov = req->elem.out_sg;
-        unsigned in_num = req->elem.in_num;
-        unsigned out_num = req->elem.out_num;
+    struct iovec *in_iov = req->elem.in_sg;
+    struct iovec *iov = req->elem.out_sg;
+    unsigned in_num = req->elem.in_num;
+    unsigned out_num = req->elem.out_num;
 
-        if (req->elem.out_num < 1 || req->elem.in_num < 1) {
-            virtio_error(vdev, "virtio-blk missing headers");
-            return NULL;
-        }
+    if (req->elem.out_num < 1 || req->elem.in_num < 1) {
+        virtio_error(vdev, "virtio-blk missing headers");
+        return NULL;
+    }
 
-        if (unlikely(iov_to_buf(iov, out_num, 0, &req->out,
-                                sizeof(req->out)) != sizeof(req->out))) {
-            virtio_error(vdev, "virtio-blk request outhdr too short");
-            return NULL;
-        }
+    if (unlikely(iov_to_buf(iov, out_num, 0, &req->out,
+                            sizeof(req->out)) != sizeof(req->out))) {
+        virtio_error(vdev, "virtio-blk request outhdr too short");
+        return NULL;
+    }
 
-        iov_discard_front(&iov, &out_num, sizeof(req->out));
+    iov_discard_front(&iov, &out_num, sizeof(req->out));
 
-        if (in_iov[in_num - 1].iov_len < sizeof(struct virtio_blk_inhdr)) {
-            virtio_error(vdev, "virtio-blk request inhdr too short");
-            return NULL;
-        }
+    if (in_iov[in_num - 1].iov_len < sizeof(struct virtio_blk_inhdr)) {
+        virtio_error(vdev, "virtio-blk request inhdr too short");
+        return NULL;
+    }
 
-        /* We always touch the last byte, so just see how big in_iov is.  */
-        req->in_len = iov_size(in_iov, in_num);
-        req->in = (void *)in_iov[in_num - 1].iov_base
-                + in_iov[in_num - 1].iov_len
-                - sizeof(struct virtio_blk_inhdr);
-        //req->in_len = 0;
-        //req->in = NULL;
-                
-        iov_discard_back(in_iov, &in_num, sizeof(struct virtio_blk_inhdr));
+    /* We always touch the last byte, so just see how big in_iov is.  */
+    req->in_len = iov_size(in_iov, in_num);
+    req->in = (void *)in_iov[in_num - 1].iov_base
+              + in_iov[in_num - 1].iov_len
+              - sizeof(struct virtio_blk_inhdr);
+    iov_discard_back(in_iov, &in_num, sizeof(struct virtio_blk_inhdr));
 
-        qemu_iovec_init_external(&req->qiov, iov, out_num);
-        req->sector_num = virtio_ldq_p(VIRTIO_DEVICE(req->dev), &req->out.sector);
-        type = virtio_ldl_p(VIRTIO_DEVICE(req->dev), &req->out.type);
-        if((time_in_double() - startTime) > 5){
-            assert(0);
-        }
-        //assert(type & VIRTIO_BLK_T_OUT);
-    }while(!(type & VIRTIO_BLK_T_OUT));
+    qemu_iovec_init_external(&req->qiov, iov, out_num);
+    req->sector_num = virtio_ldq_p(VIRTIO_DEVICE(req->dev), &req->out.sector);
+    type = virtio_ldl_p(VIRTIO_DEVICE(req->dev), &req->out.type);
+    assert(type & VIRTIO_BLK_T_OUT);
 
     return req;
 }
@@ -596,31 +577,12 @@ static void virtio_blk_handle_scsi(VirtIOBlockReq *req)
 }
 static void direct_callback(void *opaque, int ret){
     VirtIOBlockReq *next = opaque;
-
     while (next) {
         VirtIOBlockReq *req = next;
-        /*VirtIOBlock *s = req->dev;
-        VirtIODevice *vdev = VIRTIO_DEVICE(s);*/
-        next = req->mr_next;        
-            //printf("directly write callback %p  finish  quota = %d\n",req,quota);
-            /*if (s->dataplane_started && !s->dataplane_disabled) {
-                virtio_blk_data_plane_notify(s->dataplane, req->vq);
-            } else {
-                virtio_notify(vdev, req->vq);
-            }
-            virtqueue_push(req->vq, &req->elem, req->in_len);*/
-            virtio_blk_complete_head(req);
-            virtio_blk_free_request(req);
+        next = req->mr_next;
+        virtio_blk_complete_head(req);
+        virtio_blk_free_request(req);
     }
-    //ReqRecord *rec;
-    //VirtIOBlock *s = global_virtio_block;
-    /* int i;
-    QTAILQ_FOREACH(rec, &s->record_list, node) {        //every epoch record list
-        for (i = 0; i < rec->len; i++) {                //every request
-            printf("%p -> ",rec->reqs[i]);
-        }
-    }
-    printf("\n");*/
     ++quota;
 }
 static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
@@ -629,8 +591,6 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
     QEMUIOVector *qiov = &mrb->reqs[start]->qiov;
     int64_t sector_num = mrb->reqs[start]->sector_num;
     bool is_write = mrb->is_write;
-    ReqRecord *rec;
-    VirtIOBlock *s = global_virtio_block;
     int i;
     if (num_reqs > 1) {
         int i;
@@ -660,43 +620,20 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
                               num_reqs - 1);
     }
     if (is_write) {
-        if(!ft_started || quota <= 0 ){ 
-            if(mrb->reqs[start]->callback && mrb->reqs[start]->remain){
-                printf("CCCCCCCCCCCCCCCCCCCCCCCC\n");
-                for (i = start ; i < start + num_reqs; i++) 
-                    printf("%d\n",mrb->reqs[i]->callback);
-                blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
-                            direct_callback, mrb->reqs[start]);                
-            }else{
-                //printf("SUSpend write callback from %p  quota = %d\n",mrb->reqs[start],quota);
-                for (i = start ; i < start + num_reqs; i++) 
-                    mrb->reqs[i]->callback = false;
-                blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
-                                virtio_blk_rw_complete, mrb->reqs[start]);
-            }
+        if(!ft_started || quota <= 0 ){
+            blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
+                            virtio_blk_rw_complete, mrb->reqs[start]);
         }else{
             --quota;
-            //printf("direct write callback from %p   quota = %d\n",mrb->reqs[start],quota);
-            for (i = start ; i < start + num_reqs; i++) 
+            for (i = start ; i < start + num_reqs; i++)
                 mrb->reqs[i]->callback = true;
             blk_aio_pwritev(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
                             direct_callback, mrb->reqs[start]);
             virtio_blk_rw_complete(mrb->reqs[start], 0);
         }
     } else {
-        QTAILQ_FOREACH(rec, &s->record_list, node) {        //every epoch record list
-            for (i = 0; i < rec->len; i++) {                //every request
-                if(rec->reqs[i] == mrb->reqs[start]){
-                    //printf("have same request addresss in read/write    %p\n",rec->reqs[i]);
-                    break;
-                }
-            }
-        }
-        for (i = start ; i < start + num_reqs; i++) 
-            mrb->reqs[i]->callback = false;
-        //printf("set read callback from %p   quota = %d\n",mrb->reqs[start],quota);
         blk_aio_preadv(blk, sector_num << BDRV_SECTOR_BITS, qiov, 0,
-                    virtio_blk_rw_complete, mrb->reqs[start]);
+                       virtio_blk_rw_complete, mrb->reqs[start]);
     }
 }
 
@@ -859,7 +796,6 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
         virtio_error(vdev, "virtio-blk request inhdr too short");
         return -1;
     }
-    
     /* We always touch the last byte, so just see how big in_iov is.  */
     if (kvmft_started()) {
         req->in = NULL;
@@ -890,7 +826,6 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
             trace_virtio_blk_handle_write(req, req->sector_num,
                                           req->qiov.size / BDRV_SECTOR_SIZE);
 			if (kvmft_started()) {
-                //printf("temp write request %p   quota = %d\n",req,quota);
 				virtio_blk_save_write_head(s, req, head);
 #ifdef CONFIG_EPOCH_OUTPUT_TRIGGER
 				extern kvmft_notify_new_output();
@@ -900,7 +835,6 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
 			}
         } else {
             if (kvmft_started()) {
-                //printf("temp read request %p    %d\n",req,ft_started);
                 qemu_iovec_alloc_by_external(&req->qiov, in_iov,
                                      in_num);
             }
@@ -1227,8 +1161,6 @@ static void virtio_blk_save_device(VirtIODevice *vdev, QEMUFile *f)
             if (rec->completed[i])
                 continue;
             qemu_put_be32(f, rec->list[i]);
-            //printf("rec->list = %d\n",rec->list[i]);
-            //printf("Send Rsector_num = %ld [%d]\n",((VirtIOBlockReq*)rec->reqs[i])->sector_num,rec->list[i]);
             qemu_put_be32(f, rec->idx[i]);
             qemu_put_be64(f, ((VirtIOBlockReq*)rec->reqs[i])->sector_num);
             qemu_put_be32(f, ((VirtIOBlockReq*)rec->reqs[i])->callback);
@@ -1241,11 +1173,7 @@ static void virtio_blk_save_device(VirtIODevice *vdev, QEMUFile *f)
         qemu_put_be32(f, s->temp_list->len);
         for (i = 0; i < s->temp_list->len; i++) {
             qemu_put_be32(f, s->temp_list->list[i]);
-            //printf("temp->list = %d\n",s->temp_list->list[i]);
-            //printf("Send Tsector_num = %ld [%d]\n",((VirtIOBlockReq*)s->temp_list->reqs[i])->sector_num,s->temp_list->list[i]);
             qemu_put_be32(f, s->temp_list->idx[i]);
-            qemu_put_be64(f, ((VirtIOBlockReq*)s->temp_list->reqs[i])->sector_num);
-            qemu_put_be32(f, 0);
         }
     }
 
@@ -1296,9 +1224,6 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
     VirtIOBlock *s = VIRTIO_BLK(vdev);
     int t, i;
     VirtIOBlockReq *rec;
-    /* MultiReqBuffer mrb = {
-        .num_reqs = 0,
-    };*/
     static bool init = true;
     if(init){
         QTAILQ_INIT(&RCQ_List);
@@ -1316,11 +1241,9 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
     s->rq = NULL;
 
     while ((t = qemu_get_sbyte(f))) {
-        //printf("tttt = %d\n",t);
         if (t == 1) {
             unsigned nvqs = s->conf.num_queues;
             unsigned vq_idx = 0;
-            //VirtIOBlockReq *req;
 
             if (nvqs > 1) {
                 vq_idx = qemu_get_be32(f);
@@ -1331,16 +1254,10 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
                     return -EINVAL;
                 }
             }
-            /*req = */qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
-            /*virtio_blk_init_request(s, virtio_get_queue(vdev, vq_idx), req);
-            req->next = s->rq;
-            s->rq = req;
-
-            virtio_blk_handle_request(req, &mrb, 0);*/
+            qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
         } else if (t == 2) {
             unsigned nvqs = s->conf.num_queues;
             unsigned vq_idx = 0;
-            //VirtIOBlockReq *req;
 
             if (nvqs > 1) {
                 vq_idx = qemu_get_be32(f);
@@ -1351,82 +1268,55 @@ static int virtio_blk_load_blk(VirtIODevice *vdev, QEMUFile *f,
                     return -EINVAL;
                 }
             }
-
-            /*req = */qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
-            /*virtio_blk_init_request(s, virtio_get_queue(vdev, vq_idx), req);
-
-            virtio_blk_handle_request(req, &mrb, 0);
-            printf("%s pending read request %p added\n", __func__, req);*/
+            qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
         } else if (t == 3 || t == 4) {
             int len = qemu_get_be32(f);
-            //printf("Len => %d\n",len);
             if (len > 0) {
                 VirtIOBlockReq *req;
                 if(t == 3){
                     int* headList = (int*)calloc(len,sizeof(int));
                     int64_t* sectorList = (int64_t*)calloc(len,sizeof(int64_t));
-                    int* idx = (int*)calloc(len,sizeof(int));
                     for (i = 0; i < len; i++) {
                         headList[i] = qemu_get_be32(f);
-                        idx[i] = qemu_get_be32(f);
+                        qemu_get_be32(f);
                         sectorList[i] = qemu_get_be64(f);
                         qemu_get_be32(f);
                     }
                     int reqlen = 0;
-                    /*bool check = false;*/
                     QTAILQ_FOREACH(rec, &RCQ_List, node) {
                         if(rec->remain)
                             continue;
                         if(reqlen >= len)
                             break;
                         for (i = 0; i < len; i++) {
-                            if(headList[i] == rec->compareHead && sectorList[i] == rec->checkSector){
-                                //printf("remain Rreq[%d] %ld\n",rec->compareHead,rec->checkSector);
+                            if(headList[i] == rec->compareHead && sectorList[i] == rec->sector_num){
                                 ++reqlen;
                                 rec->remain = true;
                                 break;
                             }
                         }
                         if(i == len){
-                            //printf("Remove Rreq[%d]\n",rec->compareHead);
                             QTAILQ_REMOVE(&RCQ_List, rec, node);
                             virtio_blk_free_request(rec);
                         }
                     }
-                    /*QTAILQ_FOREACH(rec, &RCQ_List, node) {
-                        printf("Req(%d), ",rec->compareHead);
-                    }
-                    printf("\n");*/
-
                     free(headList);
                     free(sectorList);
-                    free(idx);
                 }else{
                     for (i = 0; i < len; i++) {
                         int head = qemu_get_be32(f);
                         int idx = qemu_get_be32(f);
-                        int64_t Sector = qemu_get_be64(f);
-                        qemu_get_be32(f);
-                        //printf("%s handle head %d/%d: %d\n", __func__, i, len, head);
                         req = virtio_blk_get_request_from_head(vdev, head, idx);
                         req->compareHead = head;
-                        req->checkSector = Sector;
                         req->remain = true;
-                        //printf("Treq[%d] = %ld [%d,%d]\n",i,req->sector_num,head,idx);
                         QTAILQ_INSERT_TAIL(&RCQ_List, req, node);
                     }
-                    /*QTAILQ_FOREACH(rec, &RCQ_List, node) {
-                        printf("Req(%d), ",rec->compareHead);
-                    }
-                    printf("\n");*/
                 }
             }
         } else{
             assert(0);
         }
     }
-    //if(mrb.num_reqs)
-    //    virtio_blk_submit_multireq(s->blk, &mrb);
     return 0;
 }
 
@@ -1506,56 +1396,41 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
                 int* callbackList = (int*)calloc(len,sizeof(int));
                 for (i = 0; i < len; i++) {
                     headList[i] = qemu_get_be32(f);
-                    idxList[i] = qemu_get_be64(f);
-                    sectorList[i] = qemu_get_be32(f);
-                    callbackList[i] = qemu_get_be32(f);
+                    idxList[i] = qemu_get_be32(f);
+                    if(t == 3){
+                        sectorList[i] = qemu_get_be64(f);
+                        callbackList[i] = qemu_get_be32(f);
+                    }
                 }
                 int reqlen = 0;
                 if(t == 3){
-                        QTAILQ_FOREACH(rec, &RCQ_List, node) {
-
-                            if(rec->remain)
-                                continue;
-                            if(reqlen >= len)
-                                break;
-                            for (i = 0; i < len; i++) {
-                                if(headList[i] == rec->compareHead && sectorList[i] == rec->checkSector){
-                                    //printf("Failover Rreq[%d] %ld write\n",rec->compareHead,rec->checkSector);
-                                    ++reqlen;
-                                    rec->remain = true;
-                                    rec->callback = callbackList[i];
-                                    blk_io_plug(s->blk);
-                                    virtio_blk_handle_write(rec, &mrb);
-                                    blk_io_unplug(s->blk); 
-                                    break;
-                                }
-                            }
-                            if(i == len){
-                                QTAILQ_REMOVE(&RCQ_List, rec, node);
-                                virtio_blk_free_request(rec);
-                            }
-                            /*for (i = 0; i < len; i++) {
-                                if(headList[i] == rec->compareHead ){
-                                    break;
-                                }
-                            }
-                            if(i == len){
-                                QTAILQ_REMOVE(&RCQ_List, rec, node);
-                                virtio_blk_free_request(rec);
-                            }else{
-                                printf("normal  write = %d\n",headList[i]);
+                    QTAILQ_FOREACH(rec, &RCQ_List, node) {
+                        if(rec->remain)
+                            continue;
+                        if(reqlen >= len)
+                            break;
+                        for (i = 0; i < len; i++) {
+                            if(headList[i] == rec->compareHead && sectorList[i] == rec->sector_num){
+                                ++reqlen;
+                                rec->remain = true;
+                                rec->callback = callbackList[i];
                                 blk_io_plug(s->blk);
                                 virtio_blk_handle_write(rec, &mrb);
-                                blk_io_unplug(s->blk);                              
-                            }*/
+                                blk_io_unplug(s->blk);
+                                break;
+                            }
                         }
+                        if(i == len){
+                            QTAILQ_REMOVE(&RCQ_List, rec, node);
+                            virtio_blk_free_request(rec);
+                        }
+                    }
                 }else{
                     for (i = 0; i < len; i++) {
                         rec = virtio_blk_get_request_from_head(vdev, headList[i], idxList[i]);
-                        //printf("Failover Treq[%d] %ld write\n",headList[i],sectorList[i]);
                         blk_io_plug(s->blk);
                         virtio_blk_handle_write(rec, &mrb);
-                        blk_io_unplug(s->blk); 
+                        blk_io_unplug(s->blk);
                     }
                 }
                 free(headList);
@@ -1563,7 +1438,7 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
                 free(sectorList);
                 free(callbackList);
             }
-        }else {
+        } else {
             assert(0);
         }
     }
@@ -1641,7 +1516,6 @@ static void virtio_blk_device_realize(DeviceState *dev, Error **errp)
     global_virtio_block = s;
     s->temp_list = NULL;
     QTAILQ_INIT(&s->record_list);
-    
 }
 
 static void virtio_blk_device_unrealize(DeviceState *dev, Error **errp)

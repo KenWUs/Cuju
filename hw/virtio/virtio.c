@@ -1799,7 +1799,6 @@ static int virtio_device_get(QEMUFile *f, void *opaque, size_t size)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(opaque);
     DeviceClass *dc = DEVICE_CLASS(VIRTIO_DEVICE_GET_CLASS(vdev));
-
     return virtio_load(vdev, f, dc->vmsd->version_id);
 }
 static int virtio_blk_get(QEMUFile *f, void *opaque, size_t size)
@@ -1911,8 +1910,6 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
         qemu_get_be16s(f, &vdev->vq[i].last_avail_idx);
         vdev->vq[i].signalled_used_valid = false;
         vdev->vq[i].notification = true;
-        //printf("last_avail_idx = %d\n",vdev->vq[i].last_avail_idx);
-        //printf("used_idx = %d\n",vdev->vq[i].used_idx);
         if (vdev->vq[i].vring.desc) {
             /* XXX virtio-1 devices */
             virtio_queue_update_rings(vdev, i);
@@ -1939,7 +1936,6 @@ int virtio_load_blk(VirtIODevice *vdev, QEMUFile *f, int version_id)
     }
 
     if (vdc->vmsd) {
-        //virtio_blk_load_index
         ret = virtio_blk_load_index(f, vdc->vmsd, vdev, version_id);
         if (ret) {
             return ret;
